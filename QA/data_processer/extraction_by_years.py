@@ -51,25 +51,25 @@ if __name__ == "__main__":
                         help="Start year for document extraction (inclusive)")
     parser.add_argument("--end_year", type=int, default=2007,
                         help="End year for document extraction (inclusive)")
-    parser.add_argument("--meta_archive_path", type=str, default='/data/huangjiameng/data/streamingQA/news-docs.{year}.en.filtered.gz',
-                        help="Pattern for the input archive files, e.g. '/path/to/news-docs.2007.en.filtered.gz'")
-    parser.add_argument("--deduplicated_keys_path", type=str, default='/data/huangjiameng/data/streamingQA/wmt_sorting_key_ids.txt.gz',
-                        help="Path to wmt_sorting_key_ids.txt.gz")
+    parser.add_argument("--data_path", type=str, default='data/WMT',
+                        help="Path to the directory containing WMT archive files")
+    parser.add_argument("--output_path", type=str, default='data/WMT_rawtext',
+                        help="Path to save the processed dataset (in Hugging Face format)")
 
 if __name__ == "__main__":
     args = parser.parse_args()
 
     filenames = []
     for year in range(args.start_year, args.end_year+1):
-        filename = args.meta_archive_path.format(year=year)
-        filenames.append(filename)
+        filename = f"news-docs.{year}.en.filtered.gz"
+        filenames.append(os.path.join(args.data_path, filename))
 
 
-    out_dir = f"/data/zhangzhi/data/local_datasets"
+    out_dir = args.output_path
     os.makedirs(out_dir, exist_ok=True)
     output_raw_path = os.path.join(out_dir, f'wmt_{args.start_year}-{args.end_year}.raw')
 
-    wmt_dataset = create_huggingface_dataset_from_wmt(filenames, args.deduplicated_keys_path, output_raw_path)
+    wmt_dataset = create_huggingface_dataset_from_wmt(filenames, os.path.join(args.data_path, 'wmt_sorting_key_ids.txt.gz'), output_raw_path)
     
     print(f"Dataset size: {len(wmt_dataset)}")
     print("Dataset overview:")

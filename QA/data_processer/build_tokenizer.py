@@ -18,9 +18,13 @@ if __name__ == "__main__":
                         help="Start year for document extraction (inclusive)")
     parser.add_argument("--end_year", type=int, default=2007,
                         help="End year for document extraction (inclusive)")
+    parser.add_argument("--rawtext_path", type=str, default='data/WMT_rawtext',
+                        help="Path to the raw text file for tokenizer training")
+    parser.add_argument("--output_path", type=str, default='models/',
+                        help="Path to save the trained tokenizer")
     args = parser.parse_args()
 
-    raw_text_path = f'/data/zhangzhi/data/local_datasets/wmt_{args.start_year}-{args.end_year}.raw'
+    raw_text_path = f'{args.rawtext_path}/wmt_{args.start_year}-{args.end_year}.raw'
     VOCAB_SIZE = 50257  # GPT-2 默认词汇表大小
 
     files = [raw_text_path]
@@ -47,7 +51,7 @@ if __name__ == "__main__":
     ids = tokenizer.encode(test_text).ids
     print(f"tokens: {[tokenizer.decode([tid]) for tid in ids]}")
 
-    save_dir = f"/data/zhangzhi/streamingllm_pre_experiment/nanoGPT/custom_gpt2_tokenizer_{args.start_year}-{args.end_year}"
+    save_dir = f"{args.output_path}/custom_gpt2_tokenizer_{args.start_year}-{args.end_year}"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     wrapped_tokenizer = GPT2TokenizerFast(tokenizer_object=tokenizer)

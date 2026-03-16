@@ -1,7 +1,6 @@
 import os
 import subprocess
 import concurrent.futures
-import extraction
 import argparse
 
 def download_with_wget(url, output_path):
