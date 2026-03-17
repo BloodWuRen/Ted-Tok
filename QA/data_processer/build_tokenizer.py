@@ -20,7 +20,7 @@ if __name__ == "__main__":
                         help="End year for document extraction (inclusive)")
     parser.add_argument("--rawtext_path", type=str, default='data/WMT_rawtext',
                         help="Path to the raw text file for tokenizer training")
-    parser.add_argument("--output_path", type=str, default='models/',
+    parser.add_argument("--output_path", type=str, default='checkpoints/',
                         help="Path to save the trained tokenizer")
     args = parser.parse_args()
 

@@ -208,7 +208,7 @@ class TransformerLanguageModel(nn.Module):
                     if pred_answer == gold_answer:
                         acc += 1
                 writer.add_scalar('Acc/train', acc / 100, global_epoch)
-                print(f"Epoch {global_epoch}, Acc: {acc / 100:.4f}")
+                print(f"Epoch {global_epoch}, Train Acc: {acc / 100:.4f}")
                 acc = 0
                 for line in tokenized_val:
                     eq_idx = line.index('=')
@@ -217,6 +217,7 @@ class TransformerLanguageModel(nn.Module):
                     if pred_answer == gold_answer:
                         acc += 1
                 writer.add_scalar('Acc/val', acc / len(tokenized_val), global_epoch)
+                print(f"Epoch {global_epoch}, Val Acc: {acc / len(tokenized_val):.4f}")
 
             if num_samples > 0:
                 avg_loss = total_loss / num_samples

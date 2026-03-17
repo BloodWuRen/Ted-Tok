@@ -2,6 +2,7 @@ import copy
 import json
 from tokenizers import Tokenizer
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
 import torch
 import torch.distributed as dist
 import heapq
@@ -63,9 +64,9 @@ class TokenizerChanger:
       self.special_token = torch.zeros(self.vocab_size).to(device)
 
       # get cnt
-      # for add_item in self.state["added_tokens"]:
-      #   self.cnt[add_item["id"]] += 1
-      #   self.special_token[add_item["id"]] = 1
+      for add_item in self.state["added_tokens"]:
+        self.cnt[add_item["id"]] += 1
+        self.special_token[add_item["id"]] = 1
       for token in self.state["model"]["vocab"]:
         if len(token) == 1:
           self.cnt[self.state["model"]["vocab"][token]] += 1 # special token and unit tokens cant be deleted
@@ -138,8 +139,9 @@ class TokenizerChanger:
     self.state["model"]["vocab"][token] = i
     self.id2token[i] = token
     self.theta[i] = init_theta
-    if hash(merge_key) % self.world_size == self.rank:
-      self.candidate_set.pop(merge_key)
+    self.candidate_set.pop(merge_key, None)
+    # if hash(merge_key) % self.world_size == self.rank:
+    #   self.candidate_set.pop(merge_key)
 
   def updated_tokenizer(self):
     """Returns the updated tokenizer
@@ -184,26 +186,68 @@ class TokenizerChanger:
   
     # if self.device == 'cuda:0':
       # print(len(self.candidate_list))
-    if len(self.candidate_set) > 100:
-      self.candidate_set = Counter(dict(self.candidate_set.most_common(200)))
+    if len(self.candidate_set) > 40000:
+      self.candidate_set = Counter(dict(self.candidate_set.most_common(20000)))
     for i in range(self.world_size):
       self.candidate_counters[i].clear()
 
   def __call__(self, input):
     input_ids = self.tokenizer(input, return_tensors='pt')
-    self.count(input_ids['input_ids'][0])
+    word_ids = torch.tensor(input_ids.word_ids())
+    self.count(input_ids['input_ids'][0], word_ids)
     return input_ids
-  
-  def count(self, input_ids):
+
+  def _get_pairs(self, input_ids: torch.Tensor, word_ids: torch.Tensor):
+      """
+      Returns a set of symbol pairs in a word using word IDs.
+      
+      Args:
+          input_ids (torch.Tensor): The input token IDs.
+          word_ids (list): A list of word IDs corresponding to each token.
+      
+      Returns:
+          list: A list of (pre_token_id, token_id) pairs.
+      """
+      word_ids = word_ids.tolist()
+      pairs = []
+      pre_token_id = -1
+      current_word_id = -1
+      
+      for i, token_id in enumerate(input_ids.tolist()):
+          if token_id == self.tokenizer.eos_token_id:
+              break
+          word_id = word_ids[i]
+          
+          if word_id != current_word_id:
+              pre_token_id = -1
+          
+          if word_id is None:
+              pre_token_id = -1
+              current_word_id = word_id
+              continue
+          
+          if pre_token_id != -1:
+              pairs.append((pre_token_id, token_id))
+          
+          pre_token_id = token_id
+          current_word_id = word_id
+          
+      return pairs
+
+  def count(self, input_ids, word_ids_tensor):
     ids = input_ids.clone().detach().to(self.device)
+    word_ids = word_ids_tensor.clone().detach().to(self.device)
+
+    # print(ids)
 
     self.c += torch.bincount(ids, minlength=self.c.size(0))
 
-    x = ids[:-1]
-    y = ids[1:]
-    mask = (self.special_token[x] == 0) & (self.special_token[y] == 0)
+    # x = ids[:-1]
+    # y = ids[1:]
+    # mask = (self.special_token[x] == 0) & (self.special_token[y] == 0)
 
-    pairs = zip(x[mask].tolist(), y[mask].tolist())
+    pairs = self._get_pairs(ids, word_ids) #zip(x[mask].tolist(), y[mask].tolist())
+    # print(f"pairs: {pairs}")
     for pair in pairs:
       self.candidate_counters[hash(pair) % self.world_size][pair] += 1
     return
@@ -236,11 +280,10 @@ class TokenizerChanger:
     #   print(min_index, self.id2token[min_index], self.theta[min_index])
     #   print(f"({self.id2token[max_item[0][0]]}, {self.id2token[max_item[0][1]]})", max_item[1])
     x, y = max_item[0][0], max_item[0][1]
-    del_token = self.id2token[min_index]
     
-    self.delete_merges(del_token)
+    self.delete_merges(self.id2token[min_index])
     self.add_merges([self.id2token[x], self.id2token[y]], max_item[1])
-    return (del_token, min_index, x, y)
+    return (min_index.item(), x, y)
   
   # Save the tokenizer changer, you must ensure that get_frequency has been called beforehand,
   #   and that the vocabulary size is consistent with the original size.
@@ -271,7 +314,7 @@ class TokenizerChanger:
     if not disable:
       print(f'The tokenizer has been saved to {save_directory}')
   
-  def load_pretrained(load_directory, device = "cuda", world_size = 1, rank = 0, disable: bool=True):
+  def load_pretrained(self, load_directory, device = "cuda", world_size = 1, rank = 0, disable: bool=True):
     changer = TokenizerChanger()
     meta_path = os.path.join(load_directory, "meta.json")
     if os.path.exists(meta_path):
@@ -321,6 +364,7 @@ if __name__ == "__main__":
   tokenizer = GPT2TokenizerFast.from_pretrained('/data/huangjiameng/checkpoints/openai-community/gpt2/')
   changer = TokenizerChanger(tokenizer, device=device, world_size=ddp_world_size, rank=ddp_rank)
   if master_process:
+    print(changer(" 1ABC<SEP>ABC A"))
     print(changer("Compar"))
     print(changer("ComTerry"))
     print(changer("<|endoftext|>"))

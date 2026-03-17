@@ -1,14 +1,16 @@
 import os
 import random
+import argparse
 
-def generate_math_combinations_to_file(n, output_filepath):
+def generate_math_combinations_to_file(n, output_dir, split=False):
     """
     Generates all unique addition and subtraction combinations
     where numbers are within the range 0 to 50, and results are positive.
     Then writes them to the specified file.
 
     Args:
-        output_filepath (str): The full path to the output file.
+        output_dir (str): The directory to save the generated files.
+        split (bool): Whether to split the dataset into train and test sets.
     """
     combinations = set()
     
@@ -48,23 +50,48 @@ def generate_math_combinations_to_file(n, output_filepath):
     sorted_combinations = sorted(list(combinations), key=lambda x: (int(x.split('+')[0].split('-')[0].split('^')[0]), x))
 
     # Ensure the directory exists
-    output_dir = os.path.dirname(output_filepath)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Write combinations to the file
-    with open(output_filepath, 'w') as f:
-        for combo in sorted_combinations:
-            f.write(combo + '\n') # Add a newline character for each combination
+    if split:
+        indices = list(range(len(sorted_combinations)))
+        random.seed(19)
+        random.shuffle(indices)
+        test_size = 2000
+        test_data = [sorted_combinations[i] for i in indices[:test_size]]
+        train_data = [sorted_combinations[i] for i in indices[test_size:]]
+        # Write train combinations to the file
+        train_output_filepath = os.path.join(output_dir, f"arith_lt{n}_train.txt")
+        with open(train_output_filepath, 'w') as f:
+            for combo in train_data:
+                f.write(combo + '\n') # Add a newline character for each combination
+        print(f"Generated train combinations for n={n}: {train_output_filepath}")
+        # Write test combinations to the file
+        test_output_filepath = os.path.join(output_dir, f"arith_lt{n}_test.txt")
+        with open(test_output_filepath, 'w') as f:
+            for combo in test_data:
+                f.write(combo + '\n') # Add a newline character for each combination
+        print(f"Generated test combinations for n={n}: {test_output_filepath}")
+    else:
+        output_filepath = os.path.join(output_dir, f"arith_lt{n}.txt")
+        # Write combinations to the file
+        with open(output_filepath, 'w') as f:
+            for combo in sorted_combinations:
+                f.write(combo + '\n') # Add a newline character for each combination
+        print(f"Generated combinations for n={n}: {output_filepath}")
 
-    print(f"Write the demo to file: {output_filepath}")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate math combinations for synthetic demo.")
+    parser.add_argument("--n", type=int, default=50,
+                        help="The upper limit for numbers in combinations (inclusive)")
+    parser.add_argument("--output_dir", type=str, default='data/',
+                        help="Path to save the generated combinations file")
+    parser.add_argument("--split", action='store_true',
+                        help="Whether to split the dataset into train and test sets")
+    args = parser.parse_args()
 
-# Define the output file path
-n = 9999
+    # Define the output file path
+    n = args.n
 
-# file_path = f"/data/zhangzhi/streaming_demo/arith_lt{n}.txt"
-file_path = f"/data/zhangzhi/streaming_demo/arith_lt{n}.txt"
-
-# Call the function to generate and write the combinations to the file
-generate_math_combinations_to_file(n, file_path)
-
+    # Call the function to generate and write the combinations to the file
+    generate_math_combinations_to_file(n, args.output_dir, args.split)

@@ -15,28 +15,43 @@ import argparse
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Transformer LM with different tokenizers.")
     parser.add_argument(
-        "--tokenizer_type",
-        type=str,
-        default="A",
-        choices=["A", "B", "C", "D", "E"],
-        help="Tokenizer type: A (old), B (new), C (old cpt), D (ted cpt)"
-    )
-    parser.add_argument(
         "--train_type",
         type=str,
-        default="B",
-        choices=["A", "B"],
-        help="LM training type: A (small data), B (big data)"
+        default="C",
+        choices=["C", "D", "E"],
+        help="Tokenizer type: C (old cpt), D (ted cpt), E(new cpt)"
     )
     parser.add_argument(
         "--device",
         type=str,
         default=None,
-        help="CUDA device id, e.g., '0', '1', '2'. If omitted, will auto-select."
+        help="Device to train on (e.g., 'cuda:0' or 'cpu'). If not specified, will use 'cuda:0' if available, otherwise 'cpu'."
+    )
+    parser.add_argument(
+        "--old_dataset_path",
+        type=str,
+        default="data/arith_lt50.txt",
+        help="Path to the old dataset."
+    )
+    parser.add_argument(
+        "--new_dataset_path",
+        type=str,
+        default="data/arith_lt200_train.txt",
+        help="Path to the new dataset."
+    )
+    parser.add_argument(
+        "--test_dataset_path",
+        type=str,
+        default="data/arith_lt200_test.txt",
+        help="Path to the test dataset (used for evaluation)."
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default="checkpoints/",
+        help="Path to save model checkpoints."
     )
     return parser.parse_args()
-
-args = parse_args()
 
 def set_seed(seed: int = 19, deterministic: bool = True):
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -58,11 +73,8 @@ def set_seed(seed: int = 19, deterministic: bool = True):
     else:
         torch.backends.cudnn.benchmark = True
 
-set_seed()
-
 from typing import Iterable
 
-new_vocabulary = ['+', '+1', '+10', '+13', '+14', '+15', '+16', '+17', '+18', '+19', '+3', '+4', '+5', '+6', '+7', '+8', '+9', '-', '0', '0-', '1', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '2', '20', '23', '24', '25', '26', '27', '28', '29', '3', '4', '5', '6', '7', '8', '8-', '9', '9-', '=']
 def jaccard_distance(a: Iterable[str], b: Iterable[str]) -> float:
     """
     计算两个字符串数组的 Jaccard 距离：1 - |A∩B| / |A∪B|
@@ -145,7 +157,7 @@ def run_bpe_build_vocab(text_segments, vocab_limit, num_iterations):
 
         if new_token not in active_vocabulary:
             active_vocabulary.add(new_token)
-            merges.append(list(merge_pair))
+            merges.append(merge_pair)
         if len(active_vocabulary) >= vocab_limit:
             break
     
@@ -185,35 +197,6 @@ def tokenize_expression(expression, vocabulary, trie):
         i = match_end_index
     return tokenized_result
 
-print(f"\n\n{'#'*60}")
-print(f"### 语言模型训练与预测 (CUDA Enabled) ###")
-print(f"{'#'*60}\n")
-
-
-tokenizer_type = args.tokenizer_type
-# 'A' for old tokenizer
-# 'B' for new tokenizer
-# 'D' for streaming tokenizer
-llm_train_type = args.train_type
-if torch.cuda.is_available():
-    target_device = args.device if args.device is not None else "cuda:0"
-device = torch.device(target_device) if torch.cuda.is_available() else torch.device("cpu")
-print(f"模型将在 {device} 上训练。")
-
-
-with open('arith_lt50.txt', 'r') as file:
-    data_raw_small = file.read().strip().split('\n')
-with open('arith_lt200.txt', 'r') as file:
-    data_raw_big = file.read().strip().split('\n')
-    indices = list(range(len(data_raw_big)))
-    random.seed(19)
-    random.shuffle(indices)
-    test_size = 2000
-    test_data_raw = [data_raw_big[i] for i in indices[:test_size]]
-    data_raw_big = [data_raw_big[i] for i in indices[test_size:]]
-    print(f"test dataset size: {len(test_data_raw)}")
-    print(f"train dataset size: {len(data_raw_big)}")
-
 def BPE_tokenizer_build(data_raw, vocab_limit=50, iterations=50):
     pre_tokenized_segments = []
     for segment in data_raw:
@@ -222,54 +205,63 @@ def BPE_tokenizer_build(data_raw, vocab_limit=50, iterations=50):
 
     print(f"### 预分词后的文本段数量: {len(pre_tokenized_segments)}")
 
-    final_vocabulary, _ = run_bpe_build_vocab(
+    vocab, merges = run_bpe_build_vocab(
         pre_tokenized_segments,
         vocab_limit,
         iterations
     )
-    return final_vocabulary
+    return vocab, merges
 
-if tokenizer_type == 'A' or tokenizer_type == 'B' or tokenizer_type == 'C' or tokenizer_type == 'E':
-    final_vocabulary = BPE_tokenizer_build(data_raw_small if tokenizer_type in ['A', 'C', 'E'] else data_raw_big, vocab_limit=50, iterations=50)
-if tokenizer_type == 'D':
-    from tokenizers import Tokenizer
+args = parse_args()
+set_seed()
+
+print(f"\n\n{'#'*60}")
+print(f"### 语言模型训练与预测 (CUDA Enabled) ###")
+print(f"{'#'*60}\n")
+
+if torch.cuda.is_available():
+    target_device = args.device if args.device is not None else "cuda:0"
+device = torch.device(target_device) if torch.cuda.is_available() else torch.device("cpu")
+print(f"模型将在 {device} 上训练。")
+
+with open(args.old_dataset_path, 'r') as file:
+    data_raw_small = file.read().strip().split('\n')
+with open(args.new_dataset_path, 'r') as file:
+    data_raw_big = file.read().strip().split('\n')
+with open(args.test_dataset_path, 'r') as file:
+    test_data_raw = file.read().strip().split('\n')
+print(f"test dataset size: {len(test_data_raw)}")
+print(f"train dataset size: {len(data_raw_big)}")
+
+
+train_type = args.train_type
+final_vocabulary, merges = BPE_tokenizer_build(data_raw_small, vocab_limit=50, iterations=50)
+if train_type == 'D':
+    from tokenizers import Tokenizer, models
     from transformers import GPT2TokenizerFast
     from TokenizerChanger import TokenizerChanger
-    tokenizer = GPT2TokenizerFast.from_pretrained('/data/huangjiameng/checkpoints/openai-community/gpt2')
-    state = json.loads(tokenizer.backend_tokenizer.__getstate__())
-    state["added_tokens"] = []
-    state["pre_tokenizer"] = None
-    pre_tokenized_segments = []
-    for segment in data_raw_small:
-        if segment.strip():
-            pre_tokenized_segments += re.findall(r'[\d+\^\-]+|[=]',segment.strip())
 
-    vocab_limit_for_build = 50
-    iterations_for_build = 50
+    special_tokens = {"<S>", "\n", "<UNK>"}
+    init_vocabulary = sorted(list(final_vocabulary.union(special_tokens)))
 
-    init_vocab, init_merges = run_bpe_build_vocab(
-        pre_tokenized_segments,
-        vocab_limit_for_build,
-        iterations_for_build
+    vocab_dict = {token: idx for idx, token in enumerate(init_vocabulary)}
+    tokenizer_obj = Tokenizer(models.BPE(
+        vocab=vocab_dict,
+        merges=merges,
+        dropout=None,
+        unk_token=None
+    ))
+    tokenizer = GPT2TokenizerFast(
+        tokenizer_object=tokenizer_obj,
+        eos_token="\n",
+        bos_token="<S>",
+        unk_token="<UNK>",
+        pad_token="=",
+        model_max_length=1024,
     )
 
-    print(f"\n\n{'#'*60}")
-    print(f"### 初始词汇表构建完成 ###")
-    print(f"Merges: {init_merges}")
-    print(f"{'#'*60}\n")
-
-    state["model"]["vocab"] = {token: idx for idx, token in enumerate(init_vocab)}
-    state["model"]["merges"] = init_merges
-    backend_tokenizer = Tokenizer.from_str(json.dumps(state))
-    tokenizer = tokenizer.__class__(
-    tokenizer_object=backend_tokenizer, **tokenizer.init_kwargs)
-
-    # print(json.loads(tokenizer.backend_tokenizer.__getstate__())["model"]["vocab"])
-
-    tokenizer.eos_token_id = state["model"]["vocab"]["="]
     changer = TokenizerChanger(tokenizer, alpha=0.3, device=device)
-
-    final_vocabulary = init_vocab
+new_vocabulary, _ = BPE_tokenizer_build(data_raw_big, vocab_limit=50, iterations=50)
 
 print(f"\n\n{'#'*60}")
 print(f"### 词汇表构建完成 ###")
@@ -278,8 +270,10 @@ print(f"{'#'*60}\n")
 
 lm = TransformerLanguageModel(final_vocabulary, device=device)
 print(lm.get_num_parameters())
+if train_type == 'D':
+    assert all(lm.id_to_token[i] == changer.id2token[i] for i in range(len(changer.id2token)))
 
-writer = SummaryWriter(log_dir=f'runs/{tokenizer_type + llm_train_type}-{lm.lr}')
+writer = SummaryWriter(log_dir=f'runs/{train_type}-{lm.lr}')
 def train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, lm_training_data_raw, test_data_raw, chunk_num, epoch_num, revise_enabled=False):
     for i in range(chunk_num):
         lm_tokenized_sequences = []
@@ -297,19 +291,10 @@ def train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, lm_training_da
                 lm_val_sequences.append(tokenized_line)
         print(f"平均编码长度: {sum(tmp) / len(tmp)}")
         print(final_vocabulary)
-        # print(changer.state["model"]["merges"])
         writer.add_scalar('AL', sum(tmp) / len(tmp), i)
         writer.add_scalar('dist', jaccard_distance(new_vocabulary, final_vocabulary), i)
 
-        # print("\n用于训练BPE的预分词序列 (示例):")
-        # for seq in lm_tokenized_sequences[:5]:
-        #     print(seq)
-        # if len(lm_tokenized_sequences) > 5:
-        #     print(f"... (共 {len(lm_tokenized_sequences)} 条序列)")
-
         (offset, epoch_offset) = lm.fit(lm_tokenized_sequences, lm_val_sequences, epochs=epoch_num // chunk_num, offset=offset, epoch_offset=epoch_offset, writer=writer)
-        # offset = offset + 15 * epoch_num // chunk_num
-        # epoch_offset = epoch_offset + epoch_num // chunk_num
         
         print(f'Chunk {i} finish.')
         if i < chunk_num - 10 and revise_enabled:
@@ -325,17 +310,15 @@ def train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, lm_training_da
                 continue
             _ = changer.try_replace()
             if _ is not None:
-                del_token, id, x, y = _
+                id, x, y = _
                 x = lm.token_to_id[changer.id2token[x]]
                 y = lm.token_to_id[changer.id2token[y]]
                 changer.updated_tokenizer()
                 new_token = changer.id2token[id]
-                print(del_token, new_token)
 
-                id = lm.token_to_id.pop(del_token, None)
-                assert id is not None
                 lm.token_to_id[new_token] = id
                 lm.id_to_token[id] = new_token
+                assert all(lm.id_to_token[i] == changer.id2token[i] for i in range(len(changer.id2token)))
 
                 W = lm.embedding.weight
                 O = lm.output_linear.weight
@@ -349,25 +332,21 @@ def train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, lm_training_da
                 lm.set_vocabulary(final_vocabulary)
     return lm, final_vocabulary, offset, epoch_offset
 
-lm_training_data_raw = data_raw_small if llm_train_type == 'A' else data_raw_big
-
 offset = 0
 epoch_offset = 0
 
 epoch_num = 1000
-if tokenizer_type == 'A' or tokenizer_type == 'B':
-    lm_training_data_raw = data_raw_small if llm_train_type == 'A' else data_raw_big
-    lm, final_vocabulary, offset, epoch_offset = train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, lm_training_data_raw, test_data_raw, 1, epoch_num, False)
+
+
+lm, final_vocabulary, offset, epoch_offset = train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, data_raw_small, test_data_raw, 1, epoch_num, False)
+if train_type == 'D':
+    chunk_num = 50
 else:
-    lm, final_vocabulary, offset, epoch_offset = train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, data_raw_small, test_data_raw, 1, epoch_num, False)
-    if tokenizer_type == 'D':
-        chunk_num = 50
-    else:
-        chunk_num = 1
-    if tokenizer_type == 'E':
-        final_vocabulary = BPE_tokenizer_build(data_raw_big, vocab_limit=50, iterations=50)
-        lm.reset_vocabulary(final_vocabulary)
-    lm, final_vocabulary, offset, epoch_offset = train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, data_raw_big, test_data_raw, chunk_num, epoch_num, tokenizer_type == 'D')
+    chunk_num = 1
+if train_type == 'E':
+    final_vocabulary, _ = BPE_tokenizer_build(data_raw_big, vocab_limit=50, iterations=50)
+    lm.reset_vocabulary(final_vocabulary)
+lm, final_vocabulary, offset, epoch_offset = train_lm_on_chunk(lm, final_vocabulary, offset, epoch_offset, data_raw_big, test_data_raw, chunk_num, epoch_num, train_type == 'D')
 
 writer.close()
 print("\n语言模型训练完成。")
@@ -384,21 +363,16 @@ def generate_sequence(model, initial_context_token, max_gen_length=15):
     for _ in range(max_gen_length):
         next_token = model.predict_next_token(predicted_sequence) 
         if next_token == model.end_token:
-            # print(f"预测到序列结束标记，停止生成。")
             break
         predicted_sequence.append(next_token)
         full_generated_text += next_token
-        # print(f"当前生成: '{full_generated_text}'")
-    # else: 
-    #     print(f"达到最大生成长度 ({max_gen_length})。")
-
-    # print(f"\n最终预测序列: '{''.join(predicted_sequence)}'")
     return full_generated_text
 
-torch.save(lm.state_dict(), f"model_weights_{tokenizer_type}{llm_train_type}.pth")
+os.makedirs(args.checkpoint_path, exist_ok=True)
+torch.save(lm.state_dict(), f"{args.checkpoint_path}/model_weights_{train_type}.pth")
 
 ac = 0
-for line in lm_training_data_raw[:100]:
+for line in data_raw_big[:100]:
   head, sep, tail = line.rpartition("=")
   if generate_sequence(lm, head + sep) == tail:
     ac += 1
