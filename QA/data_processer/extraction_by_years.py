@@ -55,8 +55,6 @@ if __name__ == "__main__":
                         help="Path to the directory containing WMT archive files")
     parser.add_argument("--output_path", type=str, default='data/WMT_rawtext',
                         help="Path to save the processed dataset (in Hugging Face format)")
-
-if __name__ == "__main__":
     args = parser.parse_args()
 
     filenames = []
