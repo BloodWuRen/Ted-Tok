@@ -3,6 +3,7 @@ from transformers import GPT2LMHeadModel, GPT2Config, AutoTokenizer
 import os
 import sys
 from model import GPTConfig, GPT
+import argparse
 
 def convert_custom_gpt_to_huggingface(
     input_pt_path: str,
@@ -194,26 +195,33 @@ def convert_custom_gpt_to_huggingface(
     print(f"You can now load your model using: AutoModelForCausalLM.from_pretrained('{output_dir}')")
     print(f"And tokenizer using: AutoTokenizer.from_pretrained('{output_dir}')")
 
-start_year=2017
-end_year=2021
-input_pt_path = f"/data/zhangzhi/streamingllm_pre_experiment/nanoGPT/ours-nano-customtok-3epoch-wmt_2017-2021_tok{start_year}-{end_year}/chunk0_iter213999_ckpt.pt"
-output_directory = f"../hf_checkpoint_{start_year}-{end_year}_l"
-tokenizer_name = f"/data/zhangzhi/streamingllm_pre_experiment/nanoGPT/custom_gpt2_tokenizer_{start_year}-{end_year}"
-example_model_config_overrides = {
-    'n_layer': 12,
-    'n_head': 12,
-    'n_embd': 768,
-    'block_size': 1024, # 确保与你模型训练时的block_size一致
-    'dropout': 0.0,
-    'bias': False, # 根据你的模型实际是否使用bias
-    # 'vocab_size': 50304, # 如果你的模型训练时使用了这个vocab_size，但tokenizer是gpt2 (50257)
-                            # 那么这里可能需要调整，或者确保tokenizer匹配
-}
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert custom GPT checkpoint to Hugging Face format.")
+    parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to the custom GPT .pt checkpoint file.")
+    parser.add_argument("--iteration_number", type=int, required=True, help="Iteration number of the checkpoint.")
+    parser.add_argument("--output_directory", type=str, required=True, help="Directory to save the Hugging Face model and tokenizer.")
+    args = parser.parse_args()
 
-convert_custom_gpt_to_huggingface(
-    input_pt_path=input_pt_path,
-    output_dir=output_directory,
-    tokenizer_name=tokenizer_name,
-    model_config_overrides=example_model_config_overrides # 根据需要调整或移除
-)
+    checkpoints_path = args.checkpoint_path
+    iteration_number = args.iteration_number
+    output_directory = args.output_directory
+    
+    input_pt_path = os.path.join(checkpoints_path, f"iter{iteration_number}_ckpt.pt")
+    tokenizer_name = os.path.join(checkpoints_path, f"changer_iter{iteration_number}/tokenizer")
+    example_model_config_overrides = {
+        'n_layer': 12,
+        'n_head': 12,
+        'n_embd': 768,
+        'block_size': 1024, # 确保与你模型训练时的block_size一致
+        'dropout': 0.0,
+        'bias': False, # 根据你的模型实际是否使用bias
+        # 'vocab_size': 50304, # 如果你的模型训练时使用了这个vocab_size，但tokenizer是gpt2 (50257)
+                                # 那么这里可能需要调整，或者确保tokenizer匹配
+    }
 
+    convert_custom_gpt_to_huggingface(
+        input_pt_path=input_pt_path,
+        output_dir=output_directory,
+        tokenizer_name=tokenizer_name,
+        model_config_overrides=example_model_config_overrides # 根据需要调整或移除
+    )
