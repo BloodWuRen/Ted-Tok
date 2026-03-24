@@ -22,7 +22,7 @@ Furthermore, we split the *New* dataset into a training set and a test set, with
 
 ## Model Architecture
 
-We use a Transformer-based language model with 2 encoder layers, 4 attention heads, and embedding dimension 128 for next-token prediction. The model is intentionally small (~4K parameters) to isolate the effect of tokenizer differences.
+We use a Transformer-based language model with 2 encoder layers, 4 attention heads, and embedding dimension 128 for next-token prediction. The model is intentionally small (~4K parameters) to isolate the effect of tokenizer differences. We restrict the vocabulary size to 50.
 
 ## Data Generation
 

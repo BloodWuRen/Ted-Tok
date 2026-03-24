@@ -1,4 +1,4 @@
-# QA Task
+# Question Answering Task
 
 ## Task Definition
 
@@ -24,7 +24,7 @@ The model is trained sequentially on these temporally ordered subsets to simulat
 
 ## Model Architecture
 
-We use a GPT-2 style Transformer model with 12 layers, 12 attention heads, hidden size 768, and context length 1024. The model size is approximately 124M parameters.
+We use a GPT-2 style Transformer model with 12 layers, 12 attention heads, hidden size 768, and context length 1024. The model size is approximately 124M parameters. We restrict the vocabulary size to 50,257.
 
 ## Dataset preparation
 
