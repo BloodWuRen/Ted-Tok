@@ -622,7 +622,7 @@ class FSDPSFTStreamingTrainer:
             log_only_rank_0=True,
         )
         world_size = self.ulysses_device_mesh.size(0) if self.config.ulysses_sequence_parallel_size > 1 else self.device_mesh.size()
-        self.tokenizer_changer = TokenizerChanger.load_pretrained(checkpoint_path, device=self.config.trainer.device, world_size=world_size, rank=self.device_mesh.get_rank())
+        self.tokenizer_changer = TokenizerChanger.load_pretrained(checkpoint_path, world_size=world_size, rank=self.device_mesh.get_rank())
         # Always load dataloader state for StatefulDataLoader
         self._load_dataloader_state(checkpoint_path)
 
@@ -902,7 +902,7 @@ def run_sft_streaming(config):
     tokenizer = hf_tokenizer(local_model_path, trust_remote_code=config.model.trust_remote_code)
 
     tokenizer_changer = TokenizerChanger(
-        tokenizer=tokenizer, alpha=config.algorithm.alpha, device=device_name, world_size=world_size, rank=rank
+        tokenizer=tokenizer, alpha=config.algorithm.alpha, world_size=world_size, rank=rank
     )
     train_dataset = create_sft_streaming_dataset(config.data.train_files, config.data, tokenizer_changer)
     val_dataset = create_sft_streaming_dataset(config.data.val_files, config.data, tokenizer_changer)

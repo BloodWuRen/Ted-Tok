@@ -6,3 +6,5 @@ data/
 checkpoints/
 runs/
 logs/
+outputs/
+tensorboard_log/

@@ -239,7 +239,7 @@ final_vocabulary, merges = BPE_tokenizer_build(data_raw_small, vocab_limit=50, i
 if train_type == 'D':
     from tokenizers import Tokenizer, models
     from transformers import GPT2TokenizerFast
-    from TokenizerChanger import TokenizerChanger
+    from ..tokenizer_module.TokenizerChanger import TokenizerChanger
 
     special_tokens = {"<S>", "\n", "<UNK>"}
     init_vocabulary = sorted(list(final_vocabulary.union(special_tokens)))

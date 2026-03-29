@@ -30,6 +30,7 @@ We use a GPT-2 style Transformer model with 12 layers, 12 attention heads, hidde
 
 ```
 # Run the following command to download the dataset and prepare it for training.
+cd QA
 python ./data_processer/datasets_download.py --data_path ./data/WMT
 
 ./data_processer/prepare_train_data.sh --data_path ./data/WMT --output_path ./data/WMT_rawtext
@@ -39,7 +40,7 @@ The full dataset will be downloaded in `data_path`. To simulate temporal drift, 
 
 ```
 # Run the following command to build the tokenizers for the dataset.
-./data_processer/build_tokenizers.sh --data_path ./data/WMT --output_raw_path ./data/WMT_rawtext --output_tokenizer_path ./checkpoints/tokenizers --start_year 2007 --end_year 2009
+./data_processer/build_tokenizer.sh --data_path ./data/WMT --output_raw_path ./data/WMT_rawtext --output_tokenizer_path ./checkpoints/tokenizers --start_year 2007 --end_year 2009
 ```
 
 Build a tokenizer for the dataset from `start_year` to `end_year` using BPE, and save it in the `output_tokenizer_path` directory with the name `custom_gpt2_tokenizer_{start_year}-{end_year}`.

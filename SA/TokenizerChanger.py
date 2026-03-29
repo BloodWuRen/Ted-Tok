@@ -17,7 +17,8 @@ def hash(pair: tuple[int, int]) -> int:
 class TokenizerChanger:
   # world_size: int                               - Number of processes (Constant)
   # rank: int                                     - DDP rank (Constant)
-  # device: str                                   - Device (Constant)
+  # state_device: str                             - Device for storing state tensors, default to "cpu" to save memory (Constant)
+  # cpu_group: ProcessGroup                       - Process group for CPU communication (Constant)
   # space_sign: str                               - Character to replace spaces (Constant)
   # vocab_size: int                               - Fixed size of vocabulary (Constant)
   # model_max_length: int                         - Orignial model_max_length (Constant)
@@ -31,6 +32,7 @@ class TokenizerChanger:
   # id2token: list(str, vocab_size)               - Vocabulary with id as the index
   # unused_id: list                               - List of unused id, which length is always less than 1
   # alpha: float                                  - Attenuation Coefficient (Constant)
+  # tolerance: float                              - Tolerance for replacement (Constant)
   # theta: tensor(float, vocab_size)              - Frequency estimator for tokens
   # thetan: tensor(float, vocab_size)             - Lazy tag for delta of token frequency
   # c: tensor(int, vocab_size)                    - Frequency counts of tokens in the latest input chunk
@@ -38,13 +40,19 @@ class TokenizerChanger:
   # candidate_set: Counter                        - Candidate pair frequency estimator that only includes pairs
   #                                                   whose hash values correspond to the current process rank
 
-  def __init__(self, tokenizer: PreTrainedTokenizerFast = None, space_sign: str = "Ġ", alpha: float = 0.02, device = "cuda", world_size = 1, rank = 0):
+  def __init__(self, tokenizer: PreTrainedTokenizerFast = None, space_sign: str = "Ġ", alpha: float = 0.02, tolerance: float = 1.2, world_size = 1, rank = 0):
     self.alpha = alpha
+    self.tolerance = tolerance
     self.world_size = world_size
     self.rank = rank
-    self.device = device
+    self.state_device = torch.device("cpu")
     self.space_sign = space_sign
     self.unused_id = []
+    
+    self.cpu_group = dist.new_group(
+      ranks=list(range(world_size)),
+      backend='gloo'
+    )
     # self.version = 0
 
     if tokenizer:
@@ -60,8 +68,8 @@ class TokenizerChanger:
       for key in self.state["model"]["vocab"]:
         self.id2token[self.state["model"]["vocab"][key]] = key
 
-      self.cnt = torch.zeros(self.vocab_size).to(device)
-      self.special_token = torch.zeros(self.vocab_size).to(device)
+      self.cnt = torch.zeros(self.vocab_size, device=self.state_device)
+      self.special_token = torch.zeros(self.vocab_size, device=self.state_device)
 
       # get cnt
       for add_item in self.state["added_tokens"]:
@@ -79,9 +87,9 @@ class TokenizerChanger:
       self.merge_set = set(self.merge_set)
   
       # get theta
-      self.theta = torch.zeros(self.vocab_size).to(device)
-      self.thetan = torch.zeros(self.vocab_size).to(device)
-      self.c = torch.zeros(self.vocab_size).to(device)
+      self.theta = torch.zeros(self.vocab_size, device=self.state_device)
+      self.thetan = torch.zeros(self.vocab_size, device=self.state_device)
+      self.c = torch.zeros(self.vocab_size, device=self.state_device)
       self.candidate_counters = [Counter() for _ in range(world_size)]
       self.candidate_set = Counter()
     
@@ -163,10 +171,10 @@ class TokenizerChanger:
   
   def get_frequency(self):
     if self.world_size != 1:
-      dist.all_reduce(self.c, op=dist.ReduceOp.SUM)
+      dist.all_reduce(self.c, op=dist.ReduceOp.SUM, group=self.cpu_group)
       for i in range(self.world_size):
         gathered = [None for _ in range(self.world_size)]
-        dist.all_gather_object(gathered, self.candidate_counters[i])
+        dist.all_gather_object(gathered, self.candidate_counters[i], group=self.cpu_group)
         if i == self.rank:
           delta = Counter()
           for part in gathered:
@@ -184,8 +192,6 @@ class TokenizerChanger:
     
     self.candidate_set.update(delta)
   
-    # if self.device == 'cuda:0':
-      # print(len(self.candidate_list))
     if len(self.candidate_set) > 40000:
       self.candidate_set = Counter(dict(self.candidate_set.most_common(20000)))
     for i in range(self.world_size):
@@ -235,8 +241,8 @@ class TokenizerChanger:
       return pairs
 
   def count(self, input_ids, word_ids_tensor):
-    ids = input_ids.clone().detach().to(self.device)
-    word_ids = word_ids_tensor.clone().detach().to(self.device)
+    ids = input_ids.clone().detach().to(self.state_device)
+    word_ids = word_ids_tensor.clone().detach().to(self.state_device)
 
     # print(ids)
 
@@ -265,7 +271,7 @@ class TokenizerChanger:
       max_item = None
     if self.world_size != 1:
       gathered_max = [None for _ in range(self.world_size)]
-      dist.all_gather_object(gathered_max, max_item)
+      dist.all_gather_object(gathered_max, max_item, group=self.cpu_group)
       valid_items = [item for item in gathered_max if item is not None]
       if valid_items:
         max_item = max(valid_items, key=lambda x: x[1])
@@ -273,7 +279,7 @@ class TokenizerChanger:
     if not max_item:
       return None
     
-    if self.theta[min_index] * 1.2 > max_item[1]:
+    if self.theta[min_index] * self.tolerance > max_item[1]:
       return None
 
     # if self.rank == 0:
@@ -298,6 +304,7 @@ class TokenizerChanger:
         self.tokenizer.model_max_length = 1e30
       meta = {
         'alpha': self.alpha,
+        'tolerance': self.tolerance,
         'space_sign': self.space_sign,
       }
       with open(os.path.join(save_directory, "meta.json"), "w", encoding="utf-8") as f:
@@ -306,7 +313,7 @@ class TokenizerChanger:
       torch.save(self.thetan, os.path.join(save_directory, "thetan.pt"))
 
     if self.world_size != 1:
-      dist.barrier()
+      dist.barrier(group=self.cpu_group)
 
     with open(os.path.join(save_directory, f"candidate_set_rank{self.rank}.pkl"), "wb") as f:
         pickle.dump(self.candidate_set, f)
@@ -314,24 +321,26 @@ class TokenizerChanger:
     if not disable:
       print(f'The tokenizer has been saved to {save_directory}')
   
-  def load_pretrained(self, load_directory, device = "cuda", world_size = 1, rank = 0, disable: bool=True):
+  def load_pretrained(load_directory, world_size = 1, rank = 0, disable: bool=True):
     changer = TokenizerChanger()
     meta_path = os.path.join(load_directory, "meta.json")
     if os.path.exists(meta_path):
       with open(meta_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
-      alpha = meta["alpha"]
-      space_sign = meta["space_sign"]
+      alpha = meta.get("alpha", 0.02)
+      toleance = meta.get("tolerance", 1.2)
+      space_sign = meta.get("space_sign", "Ġ")
     else:
       print(f"Warning: [Rank {rank}] meta file doesn't find.")
       alpha = 0.02
+      toleance = 1.2
       space_sign = "Ġ"
     
     tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "tokenizer"))
-    changer.__init__(tokenizer, space_sign=space_sign, alpha=alpha, device=device, world_size=world_size, rank=rank)
+    changer.__init__(tokenizer, space_sign=space_sign, alpha=alpha, world_size=world_size, rank=rank)
 
-    changer.theta = torch.load(os.path.join(load_directory, f"theta.pt"), map_location=device)
-    changer.thetan = torch.load(os.path.join(load_directory, f"thetan.pt"), map_location=device)
+    changer.theta = torch.load(os.path.join(load_directory, f"theta.pt"), map_location="cpu")
+    changer.thetan = torch.load(os.path.join(load_directory, f"thetan.pt"), map_location="cpu")
 
     with open(os.path.join(load_directory, f"candidate_set_rank{rank}.pkl"), "rb") as f:
         changer.candidate_set = pickle.load(f)
@@ -362,7 +371,7 @@ if __name__ == "__main__":
     ddp_rank = 0
   from transformers import GPT2TokenizerFast
   tokenizer = GPT2TokenizerFast.from_pretrained('/data/huangjiameng/checkpoints/openai-community/gpt2/')
-  changer = TokenizerChanger(tokenizer, device=device, world_size=ddp_world_size, rank=ddp_rank)
+  changer = TokenizerChanger(tokenizer, world_size=ddp_world_size, rank=ddp_rank)
   if master_process:
     print(changer(" 1ABC<SEP>ABC A"))
     print(changer("Compar"))
@@ -415,7 +424,7 @@ if __name__ == "__main__":
   print(f'[Rank {ddp_rank}]: candidate_set: {changer.candidate_set}')
 
   changer.save_pretrained('/data/zhangzhi/temp/tokenizer_test', disable=False)
-  changer2 = TokenizerChanger.load_pretrained('/data/zhangzhi/temp/tokenizer_test', device=device, world_size=ddp_world_size, rank=ddp_rank, disable=False)
+  changer2 = TokenizerChanger.load_pretrained('/data/zhangzhi/temp/tokenizer_test', world_size=ddp_world_size, rank=ddp_rank, disable=False)
   # The tokenizer has been saved to /data/zhangzhi/temp/tokenizer_test
   # The tokenizer has been loaded from /data/zhangzhi/temp/tokenizer_test
 

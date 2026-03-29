@@ -51,6 +51,6 @@ if [ ! -f "$OUTPUT_RAWTEXT_PATH/wmt_${START_YEAR}-${END_YEAR}.raw" ]; then
   python data_processer/extraction_by_years.py --start_year $START_YEAR --end_year $END_YEAR --data_path $DATA_PATH --output_path $OUTPUT_RAWTEXT_PATH
 fi
 
-python data_processer/build_tokenizer.py --rawtext_path $OUTPUT_RAWTEXT_PATH --start_year $START_YEAR --end_year $END_YEAR --output_path $OUTPUT_TOKENIZER_PATH
+python ../tokenizer_module/build_tokenizer.py --input_file "$OUTPUT_RAWTEXT_PATH/wmt_${START_YEAR}-${END_YEAR}.raw" --save_dir "$OUTPUT_TOKENIZER_PATH/custom_gpt2_tokenizer_${START_YEAR}-${END_YEAR}"
 
 echo "Tokenizer building completed!"

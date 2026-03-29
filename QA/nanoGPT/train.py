@@ -219,7 +219,7 @@ model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=bloc
                   bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
 
 tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_dir)
-changer = TokenizerChanger(tokenizer, alpha=args.alpha, device=device, world_size=ddp_world_size, rank=ddp_rank)
+changer = TokenizerChanger(tokenizer, alpha=args.alpha, world_size=ddp_world_size, rank=ddp_rank)
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -252,7 +252,7 @@ elif init_from == 'resume':
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     model.load_state_dict(state_dict)
     iter_num = checkpoint['iter_num']
-    changer.load_pretrained(os.path.join(out_dir, f"changer_iter{iter_num}"))
+    changer = TokenizerChanger.load_pretrained(os.path.join(out_dir, f"changer_iter{iter_num}"), world_size=ddp_world_size, rank=ddp_rank)
 
 elif init_from == 'finetune':
     print(f"Finetuning based on {base_dir}")
@@ -276,7 +276,7 @@ elif init_from == 'finetune':
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
     model.load_state_dict(state_dict)
     iter_num = checkpoint['iter_num']
-    changer.load_pretrained(os.path.join(base_dir, f"changer_iter{iter_num}"))
+    changer = TokenizerChanger.load_pretrained(os.path.join(base_dir, f"changer_iter{iter_num}"), world_size=ddp_world_size, rank=ddp_rank)
     iter_num = 0
 
 elif init_from.startswith('gpt2'):

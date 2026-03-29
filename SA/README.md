@@ -28,11 +28,12 @@ We use a Transformer-based language model with 2 encoder layers, 4 attention hea
 
 ```
 # Run the following command to generate the dataset.
-python ./data_gen.py --n 50 --output_path ./data/
-python ./data_gen.py --n 200 --output_path ./data/ --split
+cd SA
+python ./data_gen.py --n 50 --output_dir ./data/
+python ./data_gen.py --n 200 --output_dir ./data/ --split
 ```
 
-You can use the above commands to generate the dataset. The `--n` argument specifies the upper limit for numbers in combinations, and the `--output_path` argument specifies where to save the generated file. If you want to split the dataset into train and test sets, you can add the `--split` flag.
+You can use the above commands to generate the dataset. The `--n` argument specifies the upper limit for numbers in combinations, and the `--output_dir` argument specifies where to save the generated file. If you want to split the dataset into train and test sets, you can add the `--split` flag.
 
 ## Training
 
